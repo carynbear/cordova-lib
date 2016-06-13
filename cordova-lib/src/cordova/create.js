@@ -233,13 +233,16 @@ function create(dir, optionalId, optionalName, cfg, fetchOpt) {
         var import_from_path = input_directory;
         //handle when input wants to specify sub-directory (specified in index.js); 
         //
+        var isSubDir = false;
         try {
             var templatePkg = require(input_directory);
             if (templatePkg && templatePkg.dirname){
                 import_from_path = templatePkg.dirname;
+                isSubDir = true;
             }
         } catch (e) {
-            events.emit('verbose', 'index.js does not specific valid sub-directory: ' + input_directory);
+            events.emit('verbose', 'index.js does not specify valid sub-directory: ' + input_directory);
+            isSubDir = false;
         }
 
         if (!fs.existsSync(import_from_path)) {
@@ -275,6 +278,7 @@ function create(dir, optionalId, optionalName, cfg, fetchOpt) {
                         'cordova-app-hello-world', 'config.xml');
             }
         }
+
         if (fs.existsSync(path.join(paths.root, 'merges'))) {
             paths.merges = path.join(paths.root, 'merges');
         } else {
@@ -317,9 +321,10 @@ function create(dir, optionalId, optionalName, cfg, fetchOpt) {
 
         /*
         Copies template files, and directories into a Cordova project directory.
-        Files, and directories not copied include: www, mergers,platforms,
-        plugins, hooks, and config.xml. A template directory, and platform
-        directory must be passed.
+        Files, and directories not copied include: www, mergers, hooks, and config.xml which get copied over individually.
+        If the template exists in a subdirectory everything is copied.
+        Otherwise package.json, RELEASENOTES.md, .git, NOTICE, LICENSE, COPYRIGHT, and .npmignore are not copied over.
+        A template directory, and project directory must be passed.
 
         templateDir - Template directory
         projectDir - Project directory
@@ -329,19 +334,29 @@ function create(dir, optionalId, optionalName, cfg, fetchOpt) {
 
             templateFiles = fs.readdirSync(templateDir);
 
-            // Remove directories, and files that are automatically copied
-            templateFiles = templateFiles.filter(
-                function (value) {
-                    return !(value === 'www' || value === 'mergers' ||
-                    value === 'config.xml' || value === 'hooks');
-                }
-            );
+            // Remove directories, and files that are automatically copied or unwanted
+            if (isSubDir) {
+                templateFiles = templateFiles.filter(
+                    function (value) {
+                        return !(value === 'www' || value === 'mergers' ||
+                        value === 'config.xml' || value === 'hooks');
+                    }
+                );
+            } else {
+                templateFiles = templateFiles.filter(
+                    function (value) {
+                        return !(value === 'www' || value === 'mergers' ||
+                        value === 'config.xml' || value === 'hooks' || value === 'package.json' ||
+                        value === 'RELEASENOTES.md' || value === '.git' || value === 'NOTICE'||
+                        value === 'LICENSE' || value === 'COPYRIGHT' || value === '.npmignore');
+                    }
+                );
+            }
 
             // Copy each template file
             for (var i = 0; i < templateFiles.length; i++)
                 shell.cp('-R', path.resolve(templateDir, templateFiles[i]), projectDir);
         }
-
         try {
             copyOrLink(paths.www, path.join(dir, 'www'), true);
             copyOrLink(paths.merges, path.join(dir, 'merges'), true);
@@ -367,6 +382,20 @@ function create(dir, optionalId, optionalName, cfg, fetchOpt) {
             }
             throw e;
         }
+
+        // Update package.json name and version fields.
+        if (fs.existsSync(path.join(dir, 'package.json'))) {
+            var pkgjson = require(path.join(dir, 'package.json'));
+            if (cfg.name) {
+                pkgjson.name = cfg.name.toLowerCase();
+            }
+            pkgjson.version = '1.0.0';
+            fs.writeFile(path.join(dir, 'package.json'), JSON.stringify(pkgjson), function (err) {
+                if (err) throw new CordovaError('Could not write package.json');
+                events.emit('verbose', 'writing name to package.json');
+            });
+        }
+
         // Create basic project structure.
         if (!fs.existsSync(path.join(dir, 'platforms')))
             shell.mkdir(path.join(dir, 'platforms'));
@@ -374,11 +403,12 @@ function create(dir, optionalId, optionalName, cfg, fetchOpt) {
         if (!fs.existsSync(path.join(dir, 'plugins')))
             shell.mkdir(path.join(dir, 'plugins'));
 
-        // Write out id and name to config.xml
+        // Write out id and name to config.xml; set version to 1.0.0 (to match package.json default version)
         var configPath = cordova_util.projectConfig(dir);
         var conf = new ConfigParser(configPath);
         if (cfg.id) conf.setPackageName(cfg.id);
         if (cfg.name) conf.setName(cfg.name);
+        conf.setVersion('1.0.0');
         conf.write();
     });
 }

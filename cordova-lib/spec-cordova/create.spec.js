@@ -263,6 +263,36 @@ describe('create end-to-end', function() {
             .fin(done);
     });
     
+    function checkSubDir() {
+        // Check if top level dirs exist.
+        var dirs = ['hooks', 'platforms', 'plugins', 'www'];
+        dirs.forEach(function(d) {
+            expect(path.join(project, d)).toExist();
+        });
+        expect(path.join(project, 'hooks', 'README.md')).toExist();
+        
+        //index.js and template folder should not exist (inner files should be copied to the project folder)
+        expect(path.join(project, 'index.js')).not.toExist();
+        expect(path.join(project, 'template')).not.toExist();
+
+        // Check if config files exist.
+        expect(path.join(project, 'www', 'index.html')).toExist();
+
+        // Check that config.xml was updated.
+        var configXml = new ConfigParser(path.join(project, 'config.xml'));
+        expect(configXml.packageName()).toEqual(appId);
+        expect(configXml.version()).toEqual('1.0.0');
+
+        // Check that we got package.json (the correct one)
+        var pkgjson = require(path.join(project, 'package.json'));
+        expect(pkgjson.name).toEqual(appName.toLowerCase());
+        expect(pkgjson.valid).toEqual('true');
+
+        // Check that we got the right config.xml from the fixture and not some place else.
+        expect(configXml.description()).toEqual('this is the correct config.xml');
+    }
+
+
     it('should successfully run with template having package.json, and subdirectory, and package.json in subdirectory', function(done) {
         // Call cordova create with no args, should return help.
         var config = {
@@ -277,16 +307,16 @@ describe('create end-to-end', function() {
         Q()
             .then(function() {
                 // Create a real project
+                project = project + '1';
                 return cordova.raw.create(project, appId, appName, config);
             })
-            .then(checkProject)
+            .then(checkSubDir)
             .fail(function(err) {
                 console.log(err && err.stack);
                 expect(err).toBeUndefined();
             })
             .fin(done);
     });
-
 
 
 });
